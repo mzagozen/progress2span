@@ -793,7 +793,8 @@ addmap(Map, Key, ValueStr, Type) ->
                 float ->
                     to_float(ValueStr);
                 timestamp ->
-                    calendar:rfc3339_to_system_time(binary_to_list(ValueStr),
+                    %% Append UTC timezone to timestamps from CSV
+                    calendar:rfc3339_to_system_time(binary_to_list(ValueStr) ++ "Z",
                                                     [{unit,microsecond}]);
                 string when is_atom(ValueStr) ->
                     atom_to_binary(ValueStr, utf8);
