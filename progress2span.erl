@@ -524,7 +524,7 @@ print_nl(O, false) ->
 read_progress_csv(<<"">>) ->
     empty;
 read_progress_csv(Line) ->
-    Fields0 = string:split(string:chomp(Line), ",", all),
+    Fields0 = re:split(string:chomp(Line), ",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)"),
     case [unquote(string:trim(Field)) || Field <- Fields0] of
         %% Skip title line
         [<<"TIMESTAMP">>, <<"TID">>|_] ->
