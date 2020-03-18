@@ -474,9 +474,13 @@ classify(Trace, State) ->
                 TS > State#state.options#options.to ->
             ignore;
         _ ->
-            Type = trace_type(Trace),
-            classify_warn(Trace, Type),
-            {Type, key(Trace)}
+            case trace_type(Trace) of
+                ignore ->
+                    ignore;
+                Type ->
+                    classify_warn(Trace, Type),
+                    {Type, key(Trace)}
+            end
     end.
 
 %% Warn about events that don't seem to match the classification
@@ -827,27 +831,40 @@ to_float(Str) ->
 
 %% A trace entry is either a start, stop, annotation, or of 'unknown' type
 trace_type(Trace) ->
-    case trace_has_usid_and_tid(Trace) of
+    case trace_is_cdb_subsystem(Trace) of
         true ->
-            case trace_msg(Trace, trailing, <<"...">>) of
-                true ->
-                    start;
-                false ->
-                    case
-                        trace_msg(Trace, trailing,
-                                  [<<" done">>, <<" ok">>, <<" error">>])
-                        orelse
-                        trace_msg(Trace, leading, <<"leaving">>)
-                    of
-                        true ->
-                            stop;
-                        false ->
-                            annotation
-                    end
-            end;
+            ignore;
         false ->
-            unknown
+            case trace_has_usid_and_tid(Trace) of
+                true ->
+                    case trace_msg(Trace, trailing, <<"...">>) of
+                        true ->
+                            start;
+                        false ->
+                            case
+                                trace_msg(Trace, trailing,
+                                        [<<" done">>, <<" ok">>, <<" error">>])
+                                orelse
+                                trace_msg(Trace, leading, <<"leaving">>)
+                            of
+                                true ->
+                                    stop;
+                                false ->
+                                    annotation
+                            end
+                    end;
+                false ->
+                    unknown
+            end
     end.
+
+trace_is_cdb_subsystem(Trace) ->
+    case maps:find(subsystem, Trace) of
+        {ok, <<"cdb">>} ->
+            true;
+        _ ->
+            false
+        end.
 
 trace_has_usid_and_tid(Trace) ->
     is_integer(musid(Trace)) andalso is_integer(mtid(Trace)).
