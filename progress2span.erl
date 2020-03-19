@@ -510,9 +510,21 @@ parent_id(Trace, _Id, State) ->
             maps:get(id, maps:get(Key, State#state.vspans))
     end.
 
+%% We use Jaegers API endpoint that is backwards compatible with Zipkin to load
+%% JSON data. Jaeger doesn't like the Span.tags values as numbers, so
+%% we transform them to strings here just before emitting JSON
+ jaegerize_tags(Span) ->
+    Fun = fun (_,V) when not is_binary(V) -> list_to_binary(io_lib:format("~p", [V]));
+              (_,V) -> V
+    end,
+    case maps:get(tags, Span, none) of
+        none -> Span;
+        Tags -> Span#{tags => maps:map(Fun, Tags)}
+    end.
+
 print_span(Span, #state{outfd = O} = State) ->
     print_nl(O, State#state.span_printed),
-    json(O, Span),
+    json(O, jaegerize_tags(Span)),
     State#state{span_printed = true}.
 
 print_nl(O, true) ->
