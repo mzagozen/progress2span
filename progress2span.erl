@@ -368,7 +368,8 @@ vu_span(Trace, State) ->
         #{
           traceId => trace_id(Trace, State),
           id => Id,
-          parentId => Id,
+          % user-session is a "root" span, it should not have a parent
+          % parentId => Id,
           name => Name,
           kind => <<"SERVER">>,
           timestamp => TS,
