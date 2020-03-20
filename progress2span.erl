@@ -551,10 +551,28 @@ unquote(<<"\"", _/binary>> = Str) ->
 unquote(Str) ->
     Str.
 
+
+count(Needle, Haystack) -> count(Needle, Haystack, 0).
+
+count(_, [], Count) -> Count;
+count(X, [X|Rest], Count) -> count(X, Rest, Count+1);
+count(X, [_|Rest], Count) -> count(X, Rest, Count).
+
+
+%% Add annotation (log) to the list of annotations for the Span.
+%% The annotation is a map #{timestamp => TS, value => Msg}.
+%% Jaeger prohibits duplicate annotations, so we keep track of
+%% occurences and transform duplicate annotations by suffixing the message.
 add_annotation(Trace, Span) ->
-    Annotation = #{timestamp => trace_ts(Trace),
-                   value => maps:get(message, Trace)},
-    Annotations = [Annotation|maps:get(annotations, Span, [])],
+    Msg = maps:get(message, Trace),
+    Annotation0 = #{timestamp => trace_ts(Trace),
+                   value => Msg},
+    CurrentAnnotations = maps:get(annotations, Span, []),
+    Annotation = case count(Annotation0, CurrentAnnotations) of
+        0 -> Annotation0;
+        Count -> Annotation0#{value => concat([Msg, " duplicate-", list_to_binary(integer_to_list(Count))])}
+    end,
+    Annotations = [Annotation|CurrentAnnotations],
     maps:put(annotations, Annotations, Span).
 
 add_stop(Trace, Span) ->
