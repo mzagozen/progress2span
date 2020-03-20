@@ -3,7 +3,7 @@ all: progress2span.beam
 
 # Generate JSON files from .csv progress traces
 %.json: progress2span.beam %.csv
-	escript $^ $@ -tu
+	escript $^ $@ -tu -a test/logs/audit.log
 
 #
 # To upload spans, post them to http://127.0.0.1:9411/api/v2/spans

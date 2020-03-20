@@ -22,7 +22,10 @@
                   to = infinity :: non_neg_integer() | 'infinity',
 
                   %% Include a span that represents the transaction log
-                  lock_span = false :: boolean()
+                  lock_span = false :: boolean(),
+
+                  %% Built mapping between usid and username from audit.log
+                  audit_log = []
                  }).
 
 -define(info(F, A), case get(info) of
@@ -95,6 +98,9 @@ get_opt(["-" ++ _ = Arg | Args], Remain, Options) ->
                 end,
             Args1 = case What of [] -> tl(Args); _ -> Args end,
             get_opt(Args1, Remain, Options#options{traceid = TraceId});
+        "-a" ->
+            [AuditLog|Args1] = Args,
+            get_opt(Args1, Remain, Options#options{audit_log = AuditLog});
         _ ->
             io:format(standard_error, "Unknown argument: ~p\n", [Arg]),
             erlang:halt(1)
@@ -156,6 +162,25 @@ process(I, O, Options) ->
                                put(info, Options#options.info),
                                start_collector(O, Options)
                        end),
+        case Options#options.audit_log of
+            [] ->
+                ok;
+            AuditFile ->
+                {ok, AF} = ropen(AuditFile),
+                FnAudit =
+                    fun (eof) ->
+                        ok;
+                        (Line) ->
+                            case read_audit_line(Line) of
+                                empty ->
+                                    ok;
+                                UMap ->
+                                    Collector ! {umap, UMap}
+                            end
+                    end,
+                loop(AF, FnAudit, file:read_line(AF)),
+                file:close(AF)
+        end,
         Fn =
             fun (eof) ->
                     Collector ! eof;
@@ -238,7 +263,8 @@ follow(Fd, Info, FileName, Fn) ->
                 vspans = #{},             % "virtual" spans
                 cspans = #{},             % spans currently working on
                 astacks = #{},            % annotation stack
-                pstacks = #{}             % parent stack
+                pstacks = #{},            % parent stack
+                usid_map = #{}            % map usid to username
                }).
 
 start_collector(O, Options) ->
@@ -262,9 +288,14 @@ collector_loop(State) ->
     receive
         {progress, TraceMap} ->
             collector_loop(handle_trace(TraceMap, State));
+        {umap, UMap} ->
+            collector_loop(handle_umap(UMap, State));
         eof ->
             stop_collector(State)
     end.
+
+handle_umap(UMap, #state{usid_map = UMap0} = S0) ->
+    S0#state{usid_map = maps:merge(UMap0, UMap)}.
 
 %% Algorithm for building the hierarchy:
 %% * First time a usid/tid is seen that id is the top
@@ -277,7 +308,12 @@ collector_loop(State) ->
 %% span. Add the stop message as an annotation (so the result is
 %% saved)
 
-handle_trace(Trace, S0) ->
+handle_trace(Trace0, S0) ->
+    Trace = case maps:find(maps:get(usid, Trace0), S0#state.usid_map) of
+        error -> Trace0;
+        {ok, Username} ->
+            maps:put(username, Username, Trace0)
+    end,
     S1 = save_vspans(Trace, S0),
     case classify(Trace, S1) of
         {start, Key} ->
@@ -372,7 +408,7 @@ vu_span(Trace, State) ->
           name => Name,
           kind => <<"SERVER">>,
           timestamp => TS,
-          tags => maps:with([usid,context,package], Trace),
+          tags => maps:with([usid,username,context,package], Trace),
           localEndpoint => #{ serviceName => local_endpoint(State) }
          },
     update(context, Trace, remoteEndpoint, serviceName, Span0).
@@ -389,7 +425,7 @@ vt_span(Trace, USpan, State) ->
           name => Name,
           kind => <<"SERVER">>,
           timestamp => TS,
-          tags => maps:with([usid,tid,context,package], Trace),
+          tags => maps:with([usid,username,tid,context,package], Trace),
           localEndpoint => #{ serviceName => local_endpoint(State) }
          },
     update(remoteEndpoint, USpan, remoteEndpoint, Span0).
@@ -536,6 +572,16 @@ print_nl(O, true) ->
     io:put_chars(O, ",\n");
 print_nl(O, false) ->
     io:put_chars(O, "\n").
+
+read_audit_line(<<"">>) ->
+    empty;
+read_audit_line(Line) ->
+    case re:run(string:chomp(Line), " ([^ ]*)/([0-9]+) created new session", [{capture, all_but_first, list}]) of
+        nomatch -> empty;
+        {match, [[], _Usid]} -> empty;
+        {match, [Username, Usid]} ->
+            #{list_to_integer(Usid) => list_to_binary(Username)}
+    end.
 
 %% Take a progress trace line and turn it into a map
 read_progress_csv(<<"">>) ->
