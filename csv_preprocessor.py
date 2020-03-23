@@ -12,6 +12,11 @@ def clean_csv(name: str) -> None:
         reader = csv.reader(input_file)
         writer = csv.writer(output_stream, dialect=csv.unix_dialect)
         for row in reader:
+            # skip some subsystems:
+            # - cdb: because of the weird interleaving bug
+            # - xpath: because of verbosity++
+            if row[4] in ('cdb', 'xpath'):
+                continue
             writer.writerow([cell.replace('"', '').replace('\n', '\\n') for cell in row])
 
     with open(name, 'w') as output_file:
