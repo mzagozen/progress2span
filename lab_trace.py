@@ -75,7 +75,7 @@ def progress2span(csv_name: str, json_name: str, audit_name: Optional[str] = Non
         args = ['docker', 'run', '-it', '--rm', '-v', f'{pathlib.Path.cwd()}:/app', '-w', '/app', 'erlang']
     else:
         args = []
-    args.extend(['escript', 'progress2span.erl', csv_name, json_name, '-tu'])
+    args.extend(['escript', 'progress2span.erl', csv_name, json_name, '-tu', '-d'])
     if audit_name:
         args.extend(('-a', audit_name))
     process = subprocess.Popen(args, stdout=sys.stdout, stderr=sys.stderr)

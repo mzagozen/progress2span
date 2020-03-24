@@ -166,6 +166,7 @@ process(I, O, Options) ->
             [] ->
                 ok;
             AuditFile ->
+                ?info("Start: read audit\n", []),
                 {ok, AF} = ropen(AuditFile),
                 FnAudit =
                     fun (eof) ->
@@ -179,8 +180,10 @@ process(I, O, Options) ->
                             end
                     end,
                 loop(AF, FnAudit, file:read_line(AF)),
-                file:close(AF)
+                file:close(AF),
+                ?info("Done: read audit\n", [])
         end,
+        ?info("Start: read progress csv\n", []),
         Fn =
             fun (eof) ->
                     Collector ! eof;
@@ -193,6 +196,7 @@ process(I, O, Options) ->
                     end
             end,
         loop(I, Fn, file:read_line(I)),
+        ?info("Done: read progress csv\n", []),
         receive
             {'EXIT', Collector, _} ->
                 ok
@@ -375,7 +379,7 @@ special_span_annotation(Trace, State) ->
     end.
 
 debug_print_state(#state{options = #options{info = debug}} = State) ->
-    ?debug("STATE:\n  ~p\n", [State]);
+    ?debug("STATE:\n  ~p\n", [maps:without([usid_map], State)]);
 debug_print_state(_) ->
     ok.
 
