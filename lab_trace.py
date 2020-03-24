@@ -14,33 +14,23 @@ import csv_preprocessor
 def normalize_filename(filename: str) -> str:
     return re.sub(r'\.gz$', '', filename)
 
-def done_read() -> Set[str]:
-    try:
-        s = set()
-        with open('progress.done') as f:
-            for l in f.readlines():
-                s.add(l.strip())
-        return s
-    except FileNotFoundError:
-        return set()
-
-def done_update(name: str) -> None:
-    with open('progress.done', 'a+') as f:
-        f.write(normalize_filename(name))
-        f.write('\n')
+def mark_done(name: str) -> None:
+    pathlib.Path(name + '.done').touch()
 
 def find_candidates(pattern: str, force: bool = False) -> Set[str]:
-    current = set((f, normalize_filename(f)) for f in glob.glob(pattern))
+    # if the pattern ends with '*', it will pick up '*.done' files too. but if
+    # it doesn't, include '<pattern>.done' explicitly
+    if pattern.endswith('*'):
+        every = glob.glob(pattern)
+    else:
+        every = glob.glob(pattern) + glob.glob(pattern + '.done')
+    every_file = set(c for c in every if not c.endswith('.done'))
     if force:
-        candidates = set(c[0] for c in current)
-        return candidates
+        return every_file
 
-    done = done_read()
-    candidates = set()
-    for c, cn in current:
-        if c not in done and cn not in done:
-            candidates.add(c)
-    return candidates
+    done = set(re.sub(r'\.done$', '', c) for c in every if c.endswith('.done'))
+    print(f'{every}\n{every_file}\n{done}')
+    return every_file - done
 
 def gunzip(src: str, dst: str) -> None:
     with gzip.open(src, 'rb') as f1, \
@@ -54,8 +44,9 @@ def csv_extract_and_preprocess(name: str) -> str:
     else:
         csv_name = name
 
-    csv_preprocessor.clean_csv(csv_name)
-    return csv_name
+    csv_name_clean = f'{csv_name}-processed'
+    csv_preprocessor.clean_csv(csv_name, csv_name_clean)
+    return csv_name_clean
 
 def audit_extract(name: str) -> str:
     if name.endswith('.gz'):
@@ -93,16 +84,35 @@ def progress2span(csv_name: str, json_name: str, audit_name: Optional[str] = Non
     return code == 0
 
 def upload_json(json_name: str, url: str) -> bool:
-    args = ['curl', '--noproxy', '*', '-v', '-H', 'Content-Type: application/json', url, '--data-binary', f'@{json_name}']
+    args = ['curl', '--fail', '--noproxy', '*', '-v', '-H', 'Content-Type: application/json', url, '--data-binary', f'@{json_name}']
     process = subprocess.Popen(args, stdout=sys.stdout, stderr=sys.stderr)
     code = process.wait()
     print(f'Exited with code {code}')
     return code == 0
 
-def cleanup(name) -> None:
+
+def remove_if_exists(name: str) -> None:
     p = pathlib.Path(name)
     if p.is_file():
         p.unlink()
+
+def cleanup(name: str) -> None:
+    """Remove extracted / generated files
+
+    The input parameter is a log or CSV filename. This function will remove the
+    extracted file if a .gz file with the same name is found. It will also
+    remove the '*-processed' files."""
+
+    # remove extracted file if there is an archive
+    if name.endswith('.gz'):
+        extracted_file = re.sub(r'\.gz$', '', name)
+        remove_if_exists(extracted_file)
+    else:
+        extracted_file = name
+
+    # remove '*-processed' files
+    for f in glob.glob(f'{extracted_file}-processed*'):
+        remove_if_exists(f)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -127,12 +137,12 @@ if __name__ == '__main__':
         if success_json:
             success_upload = upload_json(json, args.jaeger_url)
             if success_upload:
-                done_update(cp)
+                mark_done(cp)
+                if ca:
+                    mark_done(ca)
 
-        if cp != csv:
-            cleanup(csv)
-        if ca != audit_log:
-            cleanup(audit_log)
-        cleanup(json)
+                cleanup(cp)
+                if ca:
+                    cleanup(ca)
 
     #progress2span('progress-trace.log-20200322', 'progress-trace.log-20200322.json')

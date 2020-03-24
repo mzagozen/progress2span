@@ -3,4 +3,3 @@ zipkin.*
 *.csv
 *.json
 __pycache__/
-progress.done
